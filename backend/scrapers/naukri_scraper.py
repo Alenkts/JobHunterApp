@@ -116,7 +116,10 @@ def api_naukri(query: str, location: str = '', max_results: int = 20,
 # ─── Method 3: Playwright ────────────────────────────────────────────────────
 
 async def browser_naukri(query: str, location: str = '', max_results: int = 20) -> List[Job]:
-    """Use Playwright headless browser to scrape Naukri."""
+    """Use Playwright headless browser to scrape Naukri.
+    Note: Naukri actively blocks headless browsers, so this will typically
+    fall back to the HTTP scraper which uses their internal JSON API.
+    """
     try:
         from playwright.async_api import async_playwright
         jobs = []
@@ -127,17 +130,29 @@ async def browser_naukri(query: str, location: str = '', max_results: int = 20) 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
+            await page.set_extra_http_headers({
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            })
             await page.goto(url, timeout=30000)
-            await page.wait_for_timeout(2500)
+            await page.wait_for_timeout(3000)
 
-            cards = await page.query_selector_all('.jobTuple')
+            # Try multiple selector strategies (Naukri changes their DOM frequently)
+            card_selectors = ['.jobTuple', '.srp-jobtuple-wrapper', 'article[data-job-id]',
+                              'div[class*="styles_jlc"]', '.cust-job-tuple']
+            cards = []
+            for sel in card_selectors:
+                cards = await page.query_selector_all(sel)
+                if cards:
+                    break
+
             for card in cards[:max_results]:
                 try:
-                    title_el   = await card.query_selector('.title')
-                    company_el = await card.query_selector('.companyInfo span')
-                    loc_el     = await card.query_selector('.locWdth')
-                    link_el    = await card.query_selector('a.title')
-                    desc_el    = await card.query_selector('.job-description')
+                    title_el   = await card.query_selector('.title, a.title, h2')
+                    company_el = await card.query_selector('.companyInfo span, .comp-name, span[class*="comp"]')
+                    loc_el     = await card.query_selector('.locWdth, .loc-wrap, span[class*="loc"]')
+                    link_el    = await card.query_selector('a.title, a[href*="naukri.com"]')
+                    desc_el    = await card.query_selector('.job-description, .job-desc')
 
                     jobs.append(Job(
                         title=clean_text(await title_el.inner_text()) if title_el else '',
@@ -150,8 +165,17 @@ async def browser_naukri(query: str, location: str = '', max_results: int = 20) 
                 except Exception:
                     continue
             await browser.close()
-        return jobs or _fallback_naukri_jobs(query, location)
+
+        # If Playwright found real jobs, return them;
+        # otherwise fall back to the HTTP scraper (not mock data)
+        if jobs:
+            return jobs
+        print('[Naukri] Browser found 0 cards — falling back to HTTP scraper')
+        return scrape_naukri(query, location, max_results)
     except ImportError:
+        return scrape_naukri(query, location, max_results)
+    except Exception as e:
+        print(f'[Naukri] Browser error: {e} — falling back to HTTP scraper')
         return scrape_naukri(query, location, max_results)
 
 
@@ -167,41 +191,7 @@ def _role_keyword(query: str) -> str:
     return query.title()
 
 def _fallback_naukri_jobs(query: str, location: str) -> List[Job]:
-    q   = query.title()
-    kw  = _role_keyword(query)
-    loc = location or 'Bengaluru'
-    return [
-        Job(
-            title=f'{q}',
-            company='Infosys Ltd.',
-            location=loc,
-            description=f'Looking for a skilled {q} with 3-6 years experience...\n\nSkills Required: {kw}, Agile, Problem Solving\n\nResponsibilities:\n• Develop and maintain applications\n• Work with cross-functional teams\n• Participate in code reviews',
-            url='https://www.naukri.com/job-listings-demo',
-            salary='₹8 - 15 LPA',
-            posted_at='1 day ago',
-            source='naukri',
-            tags=[kw, 'IT', 'Full Time'],
-        ),
-        Job(
-            title=f'Senior {q}',
-            company='Wipro Technologies',
-            location=loc,
-            description=f'Senior {q} role at one of India\'s top IT companies...\n\nRequired: 5+ years in {kw}, team leadership, client communication',
-            url='https://www.naukri.com/job-listings-demo-2',
-            salary='₹15 - 25 LPA',
-            posted_at='3 days ago',
-            source='naukri',
-            tags=[kw, 'Senior', 'IT Services'],
-        ),
-        Job(
-            title=f'{kw} Architect',
-            company='TCS Digital',
-            location='Hyderabad, India',
-            description=f'Lead {kw} architecture design for enterprise clients at TCS Digital...\n\nRequired: 8+ years {kw} experience, solution design, client-facing skills',
-            url='https://www.naukri.com/job-listings-demo-3',
-            salary='₹25 - 40 LPA',
-            posted_at='5 days ago',
-            source='naukri',
-            tags=[kw, 'Architecture', 'Enterprise'],
-        ),
-    ]
+    """Return empty list when Naukri scraping fails — no mock data."""
+    print(f'[Naukri] Scraping failed for "{query}" in "{location}" — returning empty')
+    return []
+

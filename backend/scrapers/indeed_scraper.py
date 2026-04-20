@@ -72,21 +72,38 @@ async def browser_indeed(query: str, location: str = '', max_results: int = 20) 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
+            await page.set_extra_http_headers({
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            })
             await page.goto(url, timeout=30000)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(3000)
 
             cards = await page.query_selector_all('.job_seen_beacon')
             for card in cards[:max_results]:
                 try:
                     t = await card.query_selector('h2.jobTitle')
-                    c = await card.query_selector('.companyName')
-                    l = await card.query_selector('.companyLocation')
+                    c = await card.query_selector('span[data-testid="company-name"]')
+                    l = await card.query_selector('div[data-testid="text-location"]')
                     d = await card.query_selector('.job-snippet')
+                    a = await card.query_selector('a.jcs-JobTitle')
+
+                    title = clean_text(await t.inner_text()) if t else ''
+                    if not title:
+                        continue
+
+                    job_url = ''
+                    if a:
+                        href = await a.get_attribute('href')
+                        if href:
+                            job_url = f'https://www.indeed.com{href}' if href.startswith('/') else href
+
                     jobs.append(Job(
-                        title=clean_text(await t.inner_text()) if t else '',
+                        title=title,
                         company=clean_text(await c.inner_text()) if c else '',
                         location=clean_text(await l.inner_text()) if l else location,
                         description=clean_text(await d.inner_text()) if d else '',
+                        url=job_url,
                         source='indeed',
                     ))
                 except Exception:
@@ -106,32 +123,10 @@ def _role_keyword(query: str) -> str:
     return query.title()
 
 def _fallback_indeed(query: str, location: str) -> List[Job]:
-    q  = query.title()
-    kw = _role_keyword(query)
-    return [
-        Job(
-            title=f'{q}',
-            company='Accenture',
-            location=location or 'Chicago, IL',
-            description=f'Join Accenture as a {q}...\n\nRequirements:\n• Experience with {kw}\n• Strong analytical skills\n• Excellent communication\n• Team collaboration',
-            url='https://indeed.com/viewjob?jk=demo1',
-            salary='$80,000 - $110,000 per year',
-            posted_at='Just posted',
-            source='indeed',
-            tags=[kw, 'Full-time'],
-        ),
-        Job(
-            title=f'{kw} Consultant',
-            company='Deloitte',
-            location=location or 'Remote',
-            description=f'Deloitte is looking for a {kw} Consultant for client-facing projects...\n\nRequired: {q} experience, client communication, presentation skills',
-            url='https://indeed.com/viewjob?jk=demo2',
-            salary='$90,000 - $130,000 per year',
-            posted_at='1 day ago',
-            source='indeed',
-            tags=[kw, 'Consulting', 'Remote'],
-        ),
-    ]
+    """Return empty list when Indeed scraping fails — no mock data."""
+    print(f'[Indeed] Scraping failed for "{query}" in "{location}" — returning empty')
+    return []
+
 
 
 # ─── Glassdoor ───────────────────────────────────────────────────────────────

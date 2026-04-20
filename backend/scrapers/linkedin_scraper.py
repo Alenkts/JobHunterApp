@@ -134,13 +134,14 @@ async def browser_linkedin(query: str, location: str = '', max_results: int = 20
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             await page.set_extra_http_headers({
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ...'
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             })
 
             url = (f'https://www.linkedin.com/jobs/search/?keywords='
                    f'{urllib.parse.quote(query)}&location={urllib.parse.quote(location)}')
             await page.goto(url, timeout=30000)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(3000)
 
             cards = await page.query_selector_all('.job-search-card')
             for card in cards[:max_results]:
@@ -161,8 +162,15 @@ async def browser_linkedin(query: str, location: str = '', max_results: int = 20
                 except Exception:
                     continue
             await browser.close()
-        return jobs or _fallback_linkedin_jobs(query, location)
+
+        if jobs:
+            return jobs
+        print('[LinkedIn] Browser found 0 cards — falling back to HTTP scraper')
+        return scrape_linkedin(query, location, max_results)
     except ImportError:
+        return scrape_linkedin(query, location, max_results)
+    except Exception as e:
+        print(f'[LinkedIn] Browser error: {e} — falling back to HTTP scraper')
         return scrape_linkedin(query, location, max_results)
 
 
@@ -182,44 +190,7 @@ def _role_keyword(query: str) -> str:
 
 
 def _fallback_linkedin_jobs(query: str, location: str) -> List[Job]:
-    """Return demo jobs when LinkedIn scraping is blocked. Shows the UI works."""
-    q  = query.title()          # Full query: "Python Developer"
-    kw = _role_keyword(query)   # Keyword only: "Python"
+    """Return empty list when LinkedIn scraping fails — no mock data."""
+    print(f'[LinkedIn] Scraping failed for "{query}" in "{location}" — returning empty')
+    return []
 
-    templates = [
-        (f'Senior {q}',     'TechCorp Inc.',  'San Francisco, CA',
-         f'We are looking for a Senior {q} to join our growing team. You will work on cutting-edge projects...'),
-        (f'{kw} Engineer',  'StartupXYZ',      location or 'Remote',
-         f'Exciting opportunity for a {kw} Engineer at a fast-growing startup. Equity package included...'),
-        (f'Lead {q}',       'BigTech Ltd.',    'New York, NY',
-         f'Lead a team of 5 engineers as our Lead {q}. Competitive compensation and benefits...'),
-        (f'{kw} Specialist','GlobalCo',         location or 'Hybrid',
-         f'Join our world-class team as a {kw} Specialist. Work on products used by millions worldwide...'),
-    ]
-    return [
-        Job(
-            title=title,
-            company=company,
-            location=loc,
-            description=desc + '\n\n' + _sample_jd(q),
-            url=f'https://linkedin.com/jobs/view/demo-{i}',
-            posted_at='2 days ago',
-            source='linkedin',
-            salary='$100k - $150k',
-            tags=[kw, 'Full-time', 'LinkedIn'],
-        )
-        for i, (title, company, loc, desc) in enumerate(templates)
-    ]
-
-def _sample_jd(role: str) -> str:
-    return f"""Requirements:
-• 3+ years of experience in {role}
-• Strong problem-solving and communication skills
-• Experience with modern tools and frameworks
-• BS/MS in Computer Science or related field preferred
-
-Responsibilities:
-• Design and implement scalable solutions
-• Collaborate with cross-functional teams
-• Mentor junior team members
-• Drive technical decisions and best practices"""
