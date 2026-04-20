@@ -63,41 +63,83 @@ def scrape_indeed(query: str, location: str = '', max_results: int = 20) -> List
 
 
 async def browser_indeed(query: str, location: str = '', max_results: int = 20) -> List[Job]:
-    """Playwright-based Indeed scraper."""
+    """Playwright-based Indeed scraper. Uses stealth and forces location if ignored."""
     try:
         from playwright.async_api import async_playwright
+        from playwright_stealth import Stealth
         jobs = []
         url = f'https://www.indeed.com/jobs?q={urllib.parse.quote(query)}&l={urllib.parse.quote(location)}'
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.set_extra_http_headers({
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                              'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            })
-            await page.goto(url, timeout=30000)
-            await page.wait_for_timeout(3000)
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                           'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = await context.new_page()
+            await Stealth().apply_stealth_async(page)
+
+            print(f'[Indeed] Navigating to: {url}')
+            await page.goto(url, timeout=45000)
+            await page.wait_for_timeout(5000)
+
+            title = await page.title()
+            print(f'[Indeed] Page title: {title}')
+            if 'blocked' in title.lower() or 'access denied' in title.lower() or 'hcaptcha' in await page.content():
+                 print('[Indeed] ⚠️ BLOCKED by Cloudflare/Bot-Check')
+
+            # --- Fix: Ensure location is actually applied ---
+            if location:
+                try:
+                    # Check what's in the 'where' input
+                    for sel in ['#text-input-where', 'input[name="l"]']:
+                        try:
+                            where_val = await page.input_value(sel)
+                            if location.lower() not in where_val.lower():
+                                print(f'[Indeed] Location mismatch in {sel}: expected {location}, found {where_val}. Typing it manually...')
+                                await page.fill(sel, '')
+                                await page.fill(sel, location)
+                                await page.press(sel, 'Enter')
+                                await page.wait_for_timeout(4000)
+                                break
+                        except:
+                            continue
+                except Exception as e:
+                    print(f'[Indeed] Could not verify/fix location box: {e}')
+
+            # Wait for results or timeout
+            try:
+                await page.wait_for_selector('.job_seen_beacon', timeout=10000)
+            except:
+                pass
 
             cards = await page.query_selector_all('.job_seen_beacon')
             for card in cards[:max_results]:
                 try:
-                    t = await card.query_selector('h2.jobTitle')
-                    c = await card.query_selector('span[data-testid="company-name"]')
-                    l = await card.query_selector('div[data-testid="text-location"]')
-                    d = await card.query_selector('.job-snippet')
-                    a = await card.query_selector('a.jcs-JobTitle')
+                    # Extended selectors based on common Indeed variants
+                    t = await card.query_selector('a.jcs-JobTitle, h2.jobTitle, .jobTitle a')
+                    c = await card.query_selector('span[data-testid="company-name"], .companyName, [data-test="employerName"]')
+                    l = await card.query_selector('div[data-testid="text-location"], .companyLocation, .location')
+                    d = await card.query_selector('.job-snippet, .job-description')
 
                     title = clean_text(await t.inner_text()) if t else ''
                     if not title:
                         continue
 
                     job_url = ''
-                    if a:
-                        href = await a.get_attribute('href')
+                    # Try to find the link specifically
+                    link_el = await card.query_selector('a[href*="/rc/clk"], a[href*="/viewjob"], a.jcs-JobTitle')
+                    if link_el:
+                        href = await link_el.get_attribute('href')
+                        if href:
+                            job_url = f'https://www.indeed.com{href}' if href.startswith('/') else href
+                    
+                    if not job_url and t:
+                        href = await t.get_attribute('href')
                         if href:
                             job_url = f'https://www.indeed.com{href}' if href.startswith('/') else href
 
+                    print(f'[Indeed] Found job: {title} @ {job_url[:50]}...')
                     jobs.append(Job(
                         title=title,
                         company=clean_text(await c.inner_text()) if c else '',
@@ -112,6 +154,9 @@ async def browser_indeed(query: str, location: str = '', max_results: int = 20) 
         return jobs or _fallback_indeed(query, location)
     except ImportError:
         return scrape_indeed(query, location, max_results)
+    except Exception as e:
+        print(f'[Indeed] Browser error: {e}')
+        return _fallback_indeed(query, location)
 
 
 def _role_keyword(query: str) -> str:
@@ -176,18 +221,7 @@ def scrape_glassdoor(query: str, location: str = '', max_results: int = 20) -> L
 
 
 def _fallback_glassdoor(query: str, location: str) -> List[Job]:
-    q  = query.title()
-    kw = _role_keyword(query)
-    return [
-        Job(
-            title=f'{kw} Manager',
-            company='Microsoft',
-            location=location or 'Seattle, WA',
-            description=f'Drive {kw} initiatives at Microsoft...\n\nResponsibilities:\n• Lead {q} strategy\n• Manage team of 8-12\n• Present to executive leadership',
-            url='https://glassdoor.com/job/demo1',
-            salary='$140,000 - $180,000',
-            posted_at='Today',
-            source='glassdoor',
-            tags=[kw, 'Management', 'Microsoft'],
-        ),
-    ]
+    """Return empty list when Glassdoor scraping fails — no mock data."""
+    print(f'[Glassdoor] Scraping failed for "{query}" in "{location}" — returning empty')
+    return []
+

@@ -126,22 +126,33 @@ def api_linkedin(query: str, location: str = '', max_results: int = 20,
 # ─── Method 3: Playwright browser automation ─────────────────────────────────
 
 async def browser_linkedin(query: str, location: str = '', max_results: int = 20) -> List[Job]:
-    """Use Playwright to scrape LinkedIn like a human browser."""
+    """Use Playwright with stealth to scrape LinkedIn like a human browser."""
     try:
         from playwright.async_api import async_playwright
+        from playwright_stealth import Stealth
         jobs = []
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.set_extra_http_headers({
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                              'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            })
+            context = await browser.new_context(
+                viewport={'width': 1280, 'height': 800},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                           'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = await context.new_page()
+            await Stealth().apply_stealth_async(page)
+            
+            # Mimic scrolling to appear more human
+            await page.evaluate('window.scrollTo(0, 500)')
+            await page.wait_for_timeout(1000)
 
             url = (f'https://www.linkedin.com/jobs/search/?keywords='
                    f'{urllib.parse.quote(query)}&location={urllib.parse.quote(location)}')
             await page.goto(url, timeout=30000)
             await page.wait_for_timeout(3000)
+
+            # Mimic some scrolling
+            await page.evaluate('window.scrollTo(0, 500)')
+            await page.wait_for_timeout(1000)
 
             cards = await page.query_selector_all('.job-search-card')
             for card in cards[:max_results]:
