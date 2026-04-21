@@ -12,6 +12,7 @@ from resume_parser import parse_resume
 from ai_service import analyze_resume, tailor_resume, generate_smart_topics
 from resume_generator import generate_pdf, generate_docx
 from scrapers import search_all_sites
+import tracker as tracker_store
 
 app = FastAPI(title='JobHunter AI', version='1.0.0')
 
@@ -164,6 +165,57 @@ async def export_resume(req: ExportRequest):
         media_type=media_type,
         headers={'Content-Disposition': f'attachment; filename="{req.filename}.{ext}"'},
     )
+
+# ─── Application Tracker ─────────────────────────────────────────────────────
+
+class SaveJobRequest(BaseModel):
+    job: dict
+
+class UpdateStatusRequest(BaseModel):
+    status: str
+    notes: Optional[str] = None
+
+class UpdateNotesRequest(BaseModel):
+    notes: str
+
+@app.get('/api/tracker')
+def get_tracker():
+    """Return all tracked jobs."""
+    jobs = tracker_store.get_all()
+    return {'jobs': [j.model_dump() for j in jobs]}
+
+@app.post('/api/tracker/save')
+def save_job(req: SaveJobRequest):
+    """Bookmark a job to the tracker."""
+    job = tracker_store.save_job(req.job)
+    return job.model_dump()
+
+@app.put('/api/tracker/{job_id}/status')
+def update_status(job_id: str, req: UpdateStatusRequest):
+    """Update job status (saved|applied|interviewing|offer|rejected)."""
+    updated = tracker_store.update_status(job_id, req.status, req.notes)
+    if not updated:
+        raise HTTPException(404, 'Job not found in tracker')
+    return updated.model_dump()
+
+@app.put('/api/tracker/{job_id}/notes')
+def update_notes(job_id: str, req: UpdateNotesRequest):
+    """Save notes for a tracked job."""
+    updated = tracker_store.update_notes(job_id, req.notes)
+    if not updated:
+        raise HTTPException(404, 'Job not found in tracker')
+    return updated.model_dump()
+
+@app.delete('/api/tracker/{job_id}')
+def delete_tracked_job(job_id: str):
+    """Remove a job from the tracker."""
+    ok = tracker_store.remove_job(job_id)
+    return {'ok': ok}
+
+@app.get('/api/tracker/check/{job_id}')
+def check_saved(job_id: str):
+    """Check if a job is already saved."""
+    return {'saved': tracker_store.is_saved(job_id)}
 
 # ─── Health check ────────────────────────────────────────────────────────────
 

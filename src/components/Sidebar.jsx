@@ -2,17 +2,18 @@ import React, { useState, useEffect } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import {
   BriefcaseIcon, HomeIcon, SearchIcon, SettingsIcon,
-  FileTextIcon, ZapIcon, ServerIcon,
+  FileTextIcon, ZapIcon, ServerIcon, KanbanIcon,
 } from 'lucide-react'
 
 const NAV = [
   { id: 'home',     label: 'Home',     icon: HomeIcon },
   { id: 'search',   label: 'Jobs',     icon: SearchIcon },
+  { id: 'tracker',  label: 'Tracker',  icon: KanbanIcon },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
 export default function Sidebar() {
-  const { view, setView, resume, jobs } = useApp()
+  const { view, setView, resume, jobs, trackerJobs } = useApp()
   const [backendOk, setBackendOk] = useState(null) // null=checking, true=ok, false=down
 
   useEffect(() => {
@@ -52,20 +53,28 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex flex-col gap-1">
-        {NAV.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setView(id)}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-              view === id
-                ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30'
-                : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
-            }`}
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
+        {NAV.map(({ id, label, icon: Icon }) => {
+          const badge = id === 'tracker' && trackerJobs?.length > 0 ? trackerJobs.length : null
+          return (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                view === id
+                  ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
+              }`}
+            >
+              <Icon size={16} />
+              {label}
+              {badge && (
+                <span className="ml-auto text-[10px] bg-brand-600 text-white rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                  {badge > 9 ? '9+' : badge}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </nav>
 
       <div className="mt-6 border-t border-slate-800 pt-4">
@@ -122,7 +131,7 @@ export default function Sidebar() {
             </p>
           )}
         </div>
-        <p className="text-[10px] text-slate-600 text-center">v1.0.0 · Built with Claude AI</p>
+        <p className="text-[10px] text-slate-600 text-center">v1.1.0 · Built with Claude AI</p>
       </div>
     </aside>
   )

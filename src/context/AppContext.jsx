@@ -31,6 +31,73 @@ export function AppProvider({ children }) {
   const [tailoredData, setTailoredData] = useState(null)
   const [tailoringLoading, setTailoringLoading] = useState(false)
 
+  // ── Tracker state ─────────────────────────────────────────────────────────────
+  const [trackerJobs, setTrackerJobs] = useState([])
+
+  // Load tracker on mount (best-effort)
+  useEffect(() => {
+    axios.get(`${API}/api/tracker`)
+      .then(({ data }) => setTrackerJobs(data.jobs || []))
+      .catch(() => {})
+  }, [])
+
+  const saveJobToTracker = useCallback(async (job) => {
+    try {
+      const { data } = await axios.post(`${API}/api/tracker/save`, { job })
+      setTrackerJobs(prev => {
+        const exists = prev.find(j => j.id === data.id)
+        if (exists) return prev
+        return [...prev, data]
+      })
+      toast.success('Job saved to tracker')
+      return data
+    } catch {
+      toast.error('Failed to save job')
+      return null
+    }
+  }, [])
+
+  const updateTrackerStatus = useCallback(async (jobId, status, notes) => {
+    try {
+      const { data } = await axios.put(`${API}/api/tracker/${jobId}/status`, { status, notes })
+      setTrackerJobs(prev => prev.map(j => j.id === jobId ? data : j))
+      toast.success(`Status → ${status}`)
+      return data
+    } catch {
+      toast.error('Failed to update status')
+      return null
+    }
+  }, [])
+
+  const updateTrackerNotes = useCallback(async (jobId, notes) => {
+    try {
+      const { data } = await axios.put(`${API}/api/tracker/${jobId}/notes`, { notes })
+      setTrackerJobs(prev => prev.map(j => j.id === jobId ? data : j))
+      return data
+    } catch {
+      toast.error('Failed to save notes')
+      return null
+    }
+  }, [])
+
+  const removeFromTracker = useCallback(async (jobId) => {
+    try {
+      await axios.delete(`${API}/api/tracker/${jobId}`)
+      setTrackerJobs(prev => prev.filter(j => j.id !== jobId))
+      toast.success('Removed from tracker')
+    } catch {
+      toast.error('Failed to remove')
+    }
+  }, [])
+
+  const isJobSaved = useCallback((jobId) => {
+    return trackerJobs.some(j => j.id === jobId)
+  }, [trackerJobs])
+
+  const getTrackerJob = useCallback((jobId) => {
+    return trackerJobs.find(j => j.id === jobId) || null
+  }, [trackerJobs])
+
   // ── Settings — loaded from backend on mount ──────────────────────────────────
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const settingsLoaded = useRef(false)
@@ -205,6 +272,14 @@ export function AppProvider({ children }) {
       downloadResume,
       settings, saveSettings,
       view, setView,
+      // Tracker
+      trackerJobs,
+      saveJobToTracker,
+      updateTrackerStatus,
+      updateTrackerNotes,
+      removeFromTracker,
+      isJobSaved,
+      getTrackerJob,
     }}>
       {children}
     </AppContext.Provider>

@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar.jsx'
 import Home from './components/Home.jsx'
 import SearchView from './components/SearchView.jsx'
 import Settings from './components/Settings.jsx'
+import TrackerView from './components/TrackerView.jsx'
 import { useApp } from './context/AppContext.jsx'
 
 function AppShell() {
@@ -19,6 +20,7 @@ function AppShell() {
       <main className="flex-1 overflow-hidden">
         {view === 'home'     && <Home />}
         {view === 'search'   && <SearchView />}
+        {view === 'tracker'  && <TrackerView />}
         {view === 'settings' && <Settings />}
       </main>
     </div>
